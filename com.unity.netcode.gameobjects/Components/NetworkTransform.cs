@@ -61,6 +61,7 @@ namespace Unity.Netcode.Components
             private const int k_ScaleZBit = 9;
             private const int k_TeleportingBit = 10;
             // 11-15: <unused>
+            private const int k_ParentBit = 11;
 
             private ushort m_Bitset;
 
@@ -202,10 +203,21 @@ namespace Unity.Netcode.Components
                 }
             }
 
+            internal bool HasParentChange
+            {
+                get => (m_Bitset & (1 << k_ParentBit)) != 0;
+                set
+                {
+                    if (value) { m_Bitset = (ushort)(m_Bitset | (1 << k_ParentBit)); }
+                    else { m_Bitset = (ushort)(m_Bitset & ~(1 << k_ParentBit)); }
+                }
+            }
+
             internal float PositionX, PositionY, PositionZ;
             internal float RotAngleX, RotAngleY, RotAngleZ;
             internal float ScaleX, ScaleY, ScaleZ;
             internal double SentTime;
+            internal ulong ParentId;
 
             // Authoritative and non-authoritative sides use this to determine if a NetworkTransformState is
             // dirty or not.
@@ -277,12 +289,17 @@ namespace Unity.Netcode.Components
                     serializer.SerializeValue(ref ScaleZ);
                 }
 
+                if (HasParentChange)
+                {
+                    serializer.SerializeValue(ref ParentId);
+                }
+
                 // Only if we are receiving state
                 if (serializer.IsReader)
                 {
                     // Go ahead and mark the local state dirty or not dirty as well
                     /// <see cref="TryCommitTransformToServer"/>
-                    IsDirty = HasPositionChange || HasRotAngleChange || HasScaleChange;
+                    IsDirty = HasPositionChange || HasRotAngleChange || HasScaleChange || HasParentChange;
                 }
             }
         }
@@ -341,6 +358,8 @@ namespace Unity.Netcode.Components
         /// Whether or not z component of scale will be replicated
         /// </summary>
         public bool SyncScaleZ = true;
+
+        public bool SyncParent = true;
 
 
         private bool SynchronizeScale
@@ -594,6 +613,7 @@ namespace Unity.Netcode.Components
             var isPositionDirty = false;
             var isRotationDirty = false;
             var isScaleDirty = false;
+            var isParentDirty = false;
 
             var position = InLocalSpace ? transformToUse.localPosition : transformToUse.position;
             var rotAngles = InLocalSpace ? transformToUse.localEulerAngles : transformToUse.eulerAngles;
@@ -668,7 +688,15 @@ namespace Unity.Netcode.Components
                 isScaleDirty = true;
             }
 
-            isDirty |= isPositionDirty || isRotationDirty || isScaleDirty;
+            var parentId = transform.parent != null ? transform.parent.GetComponent<NetworkObject>().NetworkObjectId : 0;
+            if (SyncParent && (parentId != networkState.ParentId || networkState.IsTeleportingNextFrame))
+            {
+                networkState.ParentId = parentId;
+                networkState.HasParentChange = true;
+                isParentDirty = true;
+            }
+
+            isDirty |= isPositionDirty || isRotationDirty || isScaleDirty || isParentDirty;
 
             if (isDirty)
             {
@@ -696,6 +724,17 @@ namespace Unity.Netcode.Components
             // InLocalSpace Read:
             InLocalSpace = networkState.InLocalSpace;
 
+            if (networkState.HasParentChange)
+            {
+                var parentId = networkState.ParentId;
+                var parent = parentId != 0 ? NetworkManager.SpawnManager.SpawnedObjects[networkState.ParentId].transform : null;
+                if (transform.parent != parent)
+                {
+                    transform.SetParent(parent, true);
+                    ResetInterpolatedStateToCurrentAuthoritativeState();
+                }
+            }
+            
             // NOTE ABOUT INTERPOLATING AND THE CODE BELOW:
             // We always apply the interpolated state for any axis we are synchronizing even when the state has no deltas
             // to assure we fully interpolate to our target even after we stop extrapolating 1 tick later.
