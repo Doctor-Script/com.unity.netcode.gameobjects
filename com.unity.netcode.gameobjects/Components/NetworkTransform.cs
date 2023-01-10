@@ -12,7 +12,7 @@ namespace Unity.Netcode.Components
     [DisallowMultipleComponent]
     [AddComponentMenu("Netcode/Network Transform")]
     [DefaultExecutionOrder(100000)] // this is needed to catch the update time after the transform was updated by user scripts
-    public class NetworkTransform : NetworkBehaviour
+    public class NetworkTransform : NetworkBehaviour, NetworkSpawnManager.ISpaceProvider
     {
         /// <summary>
         /// The default position change threshold value.
@@ -359,7 +359,9 @@ namespace Unity.Netcode.Components
         /// </summary>
         public bool SyncScaleZ = true;
 
-        public bool SyncParent = true;
+        // Parent could be changed by owner
+        public bool SyncParent = false;
+        public bool SpawnInLocal => SyncParent;
 
 
         private bool SynchronizeScale

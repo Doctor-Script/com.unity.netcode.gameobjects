@@ -421,6 +421,8 @@ namespace Unity.Netcode
                     }
                 }
 
+                var syncParent = IsSyncParent(networkObject);
+
                 // Set the transform unless we were spawned by a prefab handler
                 // Note: prefab handlers are provided the position and rotation
                 // but it is up to the user to set those values
@@ -428,7 +430,9 @@ namespace Unity.Netcode
                 {
                     // If world position stays is true or we have auto object parent synchronization disabled
                     // then we want to apply the position and rotation values world space relative
-                    if (worldPositionStays || !networkObject.AutoObjectParentSync)
+
+
+                    if ((worldPositionStays || !networkObject.AutoObjectParentSync) && !syncParent)
                     {
                         networkObject.transform.position = position;
                         networkObject.transform.rotation = rotation;
@@ -464,7 +468,8 @@ namespace Unity.Netcode
                     {
                         parentId = parentNetworkId;
                     }
-                    networkObject.SetNetworkParenting(parentId, worldPositionStays);
+
+                    networkObject.SetNetworkParenting(parentNetworkId, worldPositionStays || syncParent);
                 }
 
 
@@ -592,8 +597,11 @@ namespace Unity.Netcode
                 }
             }
 
+            var autoObjectParentSync = networkObject.AutoObjectParentSync;
+            networkObject.AutoObjectParentSync = IsSyncParent(networkObject);
             networkObject.ApplyNetworkParenting();
             NetworkObject.CheckOrphanChildren();
+            networkObject.AutoObjectParentSync = autoObjectParentSync;
 
             networkObject.InvokeBehaviourNetworkSpawn();
 
@@ -929,6 +937,13 @@ namespace Unity.Netcode
                     }
                 }
             }
+        }
+
+        private bool IsSyncParent(NetworkObject networkObject) => networkObject.TryGetComponent<ISpaceProvider>(out var provider) && provider.SpawnInLocal;
+
+        public interface ISpaceProvider
+        {
+            bool SpawnInLocal { get; }
         }
     }
 }
